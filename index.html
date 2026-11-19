@@ -43,6 +43,7 @@
   /* chat view */
   #list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 12px 16px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   #older { display: block; margin: 0 auto 10px; font-size: 13px; color: #aaa; background: transparent; }
+  #older:disabled { opacity: .55; }
   .msg { margin: 8px 0; min-width: 0; overflow-wrap: anywhere; }
   .human { display: flex; justify-content: flex-end; }
   .human .bubble { max-width: 88%; background: #264f78; color: #fff; padding: 8px 12px; border-radius: 14px 14px 4px 14px; white-space: pre-wrap; }
@@ -208,7 +209,7 @@
     <div id="list">
       <button id="older">↑ 加载更早的消息</button>
       <div id="items"></div>
-      <div id="empty" hidden>没找到聊天面板。<br>请在 Cursor 里打开 Agent 对话，或切到「画面」查看。</div>
+      <div id="empty" hidden>没找到聊天面板。<br>请在 Cursor 里打开 Agent 对话，点底部「历史」打开以往会话，或切到「画面」查看。</div>
     </div>
     <button id="toBottom">↓ 最新</button>
     <div id="qnBar"></div>
@@ -627,7 +628,7 @@ $('title').onclick = () => { send({ t: 'windows' }); showWindows(); };
 
 const MENU_TITLE = { mode: '选择模式', model: '选择模型', history: '历史对话' };
 function showMenu(kind, items, max) {
-  if (!items.length) return status('菜单是空的，可能 Cursor 版本不同', false);
+  if (!items.length) return status(kind === 'history' ? '没有读到历史对话，请确认电脑上 Cursor 已打开聊天面板' : '菜单是空的，可能 Cursor 版本不同', false);
   status('');
   const maxRow = typeof max === 'boolean'
     ? `<button class="opt" data-max><span class="lbl">MAX Mode<span class="sub">更大上下文、更贵</span></span><span class="switch ${max ? 'on' : ''}"></span></button>` : '';
@@ -936,10 +937,19 @@ function renderItem(it) {
 const nearBottom = () => list.scrollHeight - list.scrollTop - list.clientHeight < 120;
 
 let lastChat = null;
+let lastChatId = '';
 function renderChat(chat) {
   lastChat = chat;
+  if (chat?.chatId && lastChatId && chat.chatId !== lastChatId) {
+    cache.clear();
+    itemsEl.replaceChildren();
+  }
+  lastChatId = chat?.chatId || lastChatId;
   $('empty').hidden = !!chat;
   $('older').hidden = !chat;
+  const atStart = chat && chat.moreAbove === false;
+  $('older').disabled = Boolean(atStart || loadingOlder);
+  $('older').textContent = loadingOlder ? '正在加载更早的消息…' : atStart ? '已到对话开头' : '↑ 加载更早的消息';
   $('pickMode').hidden = !chat?.mode;
   $('pickModel').hidden = !chat?.model;
   if (chat?.mode) $('pickMode').textContent = chat.mode + ' ▾';
@@ -1081,9 +1091,31 @@ $('queueBar').onclick = async e => {
 function updateToBottom() {
   $('toBottom').style.display = nearBottom() ? 'none' : 'block';
 }
-list.addEventListener('scroll', updateToBottom);
+let loadingOlder = false;
+let lastOlderAt = 0;
+function loadOlder() {
+  if (loadingOlder || !lastChat) return;
+  if (lastChat.moreAbove === false) return;
+  if (Date.now() - lastOlderAt < 800) return;
+  lastOlderAt = Date.now();
+  loadingOlder = true;
+  $('older').disabled = true;
+  $('older').textContent = '正在加载更早的消息…';
+  send({ t: 'scrollChat', dy: -900 });
+  setTimeout(() => {
+    loadingOlder = false;
+    if (!lastChat) return;
+    const atStart = lastChat.moreAbove === false;
+    $('older').disabled = atStart;
+    $('older').textContent = atStart ? '已到对话开头' : '↑ 加载更早的消息';
+  }, 1600);
+}
+list.addEventListener('scroll', () => {
+  updateToBottom();
+  if (list.scrollTop < 56) loadOlder();
+});
 $('toBottom').onclick = () => { list.scrollTop = list.scrollHeight; };
-$('older').onclick = () => send({ t: 'scrollChat', dy: -900 });
+$('older').onclick = loadOlder;
 
 document.addEventListener('click', async e => {
   const b = e.target.closest('button[data-item]');
