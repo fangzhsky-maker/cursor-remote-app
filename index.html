@@ -110,13 +110,12 @@
   .tools { flex: none; display: flex; gap: 6px; padding: 6px 8px; overflow-x: auto; scrollbar-width: none; background: #252526; border-bottom: 1px solid #333; min-width: 0; }
   .tools::-webkit-scrollbar { display: none; }
   #view { flex: 1; min-height: 0; overflow: auto; background: #111; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
-  #stage { position: relative; overflow: hidden; margin: 0 auto; }
-  #screen { position: absolute; left: 0; top: 0; max-width: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x pan-y; }
+  #stage { position: relative; overflow: hidden; margin: 0 auto; flex: none; }
+  #screen { position: absolute; left: 0; top: 0; max-width: none !important; max-height: none !important; width: auto; height: auto; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x pan-y; }
   #view.scroll { overflow: hidden; touch-action: none; }
   #view.scroll #screen { touch-action: none; }
-  #screenView.panelCrop #view { overflow-x: auto; overflow-y: hidden; touch-action: none; }
+  #screenView.panelCrop #view { overflow-x: auto; overflow-y: hidden; touch-action: none; display: flex; justify-content: center; align-items: stretch; }
   #screenView.panelCrop #screen { touch-action: none; }
-  #screenView.panelCrop #stage { height: 100%; }
   #ripple { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid #4af; pointer-events: none; opacity: 0; transition: opacity .4s; }
 
   /* composer */
@@ -1244,18 +1243,22 @@ function cropScale() {
   const [rx, ry, rw, rh] = cropRect();
   const availW = Math.max(view.clientWidth, 1);
   const availH = Math.max(view.clientHeight, 1);
-  const fit = (!rw || !rh) ? 1 : (crop ? availH / rh : Math.max(availW / rw, availH / rh));
-  return { rx, ry, rw, rh, scale: fit * zoom };
+  let scale = 1;
+  if (rw > 1 && rh > 1) {
+    scale = crop ? (availH / rh) : Math.max(availW / rw, availH / rh);
+  }
+  return { rx, ry, rw, rh, availW, availH, scale: scale * zoom };
 }
 
 function layoutStage() {
   if (mode !== 'screen') return;
-  const { rx, ry, rw, rh, scale } = cropScale();
-  const w = Math.round(rw * scale);
-  const h = crop ? Math.round(view.clientHeight * zoom) : Math.round(rh * scale);
-  stage.style.width = w + 'px';
-  stage.style.height = h + 'px';
-  screen.style.width = Math.round(frame.w * scale) + 'px';
+  const { rx, ry, rw, rh, availH, scale } = cropScale();
+  const stageW = Math.round(rw * scale);
+  const stageH = crop ? Math.round(availH) : Math.round(rh * scale);
+  stage.style.width = stageW + 'px';
+  stage.style.height = stageH + 'px';
+  screen.style.setProperty('width', Math.round(frame.w * scale) + 'px', 'important');
+  screen.style.setProperty('height', Math.round(frame.h * scale) + 'px', 'important');
   screen.style.left = Math.round(-rx * scale) + 'px';
   screen.style.top = Math.round(-ry * scale) + 'px';
 }
@@ -1277,10 +1280,13 @@ function setCrop(on) {
   $('cropFull').classList.toggle('on', !on);
   $('screenView').classList.toggle('panelCrop', on);
   if (on) setTapMode('scroll');
-  layoutStage(); applyQuality();
+  layoutStage();
+  requestAnimationFrame(() => { layoutStage(); applyQuality(); });
+  if (on && authed) send({ t: 'mode', mode: 'screen' });
 }
 $('cropPanel').onclick = () => setCrop(true);
 $('cropFull').onclick = () => setCrop(false);
+if (window.ResizeObserver) new ResizeObserver(() => { if (mode === 'screen') layoutStage(); }).observe(view);
 
 function norm(e) {
   const r = screen.getBoundingClientRect();
