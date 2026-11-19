@@ -1,5 +1,5 @@
 // Caches the app shell so the installed app opens instantly; live data (url.json, relay) always goes to the network.
-const CACHE = 'cursor-remote-v11';
+const CACHE = 'cursor-remote-v12';
 const SHELL = ['./', 'index.html', 'i18n.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
