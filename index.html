@@ -109,10 +109,11 @@
   /* screen view */
   .tools { flex: none; display: flex; gap: 6px; padding: 6px 8px; overflow-x: auto; scrollbar-width: none; background: #252526; border-bottom: 1px solid #333; min-width: 0; }
   .tools::-webkit-scrollbar { display: none; }
-  #view { flex: 1; min-height: 0; overflow: auto; background: #111; -webkit-overflow-scrolling: touch; }
-  #stage { position: relative; overflow: hidden; margin: 0 auto; min-height: 100%; }
+  #view { flex: 1; min-height: 0; overflow: auto; background: #111; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
+  #stage { position: relative; overflow: hidden; margin: 0 auto; }
   #screen { position: absolute; left: 0; top: 0; max-width: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x pan-y; }
-  #view.scroll #screen { touch-action: none; }
+  #view.scroll, #screenView.panelCrop #view { overflow: hidden; touch-action: none; }
+  #view.scroll #screen, #screenView.panelCrop #screen { touch-action: none; }
   #ripple { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid #4af; pointer-events: none; opacity: 0; transition: opacity .4s; }
 
   /* composer */
@@ -1240,8 +1241,8 @@ function cropScale() {
   const [rx, ry, rw, rh] = cropRect();
   const availW = Math.max(view.clientWidth, 1);
   const availH = Math.max(view.clientHeight, 1);
-  const scale = (!rw || !rh) ? 1 : Math.max(availW / rw, availH / rh) * zoom;
-  return { rx, ry, rw, rh, scale };
+  const fit = (!rw || !rh) ? 1 : (crop ? Math.min(availW / rw, availH / rh) : Math.max(availW / rw, availH / rh));
+  return { rx, ry, rw, rh, scale: fit * zoom };
 }
 
 function layoutStage() {
@@ -1269,6 +1270,7 @@ function setCrop(on) {
   store.set('crop', on ? 'panel' : 'full');
   $('cropPanel').classList.toggle('on', on);
   $('cropFull').classList.toggle('on', !on);
+  $('screenView').classList.toggle('panelCrop', on);
   layoutStage(); applyQuality();
 }
 $('cropPanel').onclick = () => setCrop(true);
@@ -1287,36 +1289,62 @@ function ripple(e) {
   requestAnimationFrame(() => { el.style.transition = 'opacity .4s'; el.style.opacity = 0; });
 }
 
-let down = null;
-screen.addEventListener('pointerdown', e => {
+let down = null, wheelAcc = { dx: 0, dy: 0 }, wheelTimer = null;
+function flushWheel() {
+  wheelTimer = null;
+  const dx = wheelAcc.dx, dy = wheelAcc.dy;
+  wheelAcc.dx = wheelAcc.dy = 0;
+  if (!dx && !dy) return;
+  const p = down ? norm(down) : { x: 0.5, y: 0.5 };
+  send({ t: 'wheel', x: p.x, y: p.y, dx, dy, panel: crop });
+}
+function queueWheel(dx, dy) {
+  wheelAcc.dx += dx;
+  wheelAcc.dy += dy;
+  if (!wheelTimer) wheelTimer = setTimeout(flushWheel, 24);
+}
+function remoteScroll() {
+  return tapMode === 'scroll' || crop;
+}
+function onViewPointerDown(e) {
+  if (mode !== 'screen') return;
   down = { x: e.clientX, y: e.clientY, t: Date.now(), lastY: e.clientY, lastX: e.clientX, moved: false };
-});
-screen.addEventListener('pointermove', e => {
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+}
+function onViewPointerMove(e) {
   if (!down) return;
-  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) down.moved = true;
-  if (tapMode === 'scroll' && down.moved) {
-    const scale = frame.w / screen.getBoundingClientRect().width;
-    const dy = (down.lastY - e.clientY) * scale * 1.5, dx = (down.lastX - e.clientX) * scale * 1.5;
-    down.lastY = e.clientY; down.lastX = e.clientX;
-    const p = norm(down);
-    send({ t: 'wheel', x: p.x, y: p.y, dx, dy });
+  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down.moved = true;
+  if (remoteScroll() && down.moved) {
+    e.preventDefault();
+    const css = Math.max(screen.getBoundingClientRect().width, 1);
+    const k = (frame.w / css) * (crop ? 2.4 : 1.6);
+    queueWheel((down.lastX - e.clientX) * k, (down.lastY - e.clientY) * k);
+    down.lastY = e.clientY;
+    down.lastX = e.clientX;
   }
-});
-screen.addEventListener('pointerup', e => {
+}
+function onViewPointerUp(e) {
   if (!down) return;
+  flushWheel();
   const longPress = Date.now() - down.t > 600;
-  if (!down.moved) {
+  const r = screen.getBoundingClientRect();
+  const onImg = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  if (!down.moved && onImg) {
     const p = norm(e);
     const button = rightNext || longPress ? 'right' : 'left';
     rightNext = false; $('rightClick').classList.remove('on');
     send({ t: 'tap', x: p.x, y: p.y, button });
     ripple(e);
-    if (button === 'left') setTimeout(() => text.focus(), 0);
+    if (button === 'left' && !crop) setTimeout(() => text.focus(), 0);
   }
   down = null;
-});
-screen.addEventListener('pointercancel', () => { down = null; });
+}
+view.addEventListener('pointerdown', onViewPointerDown);
+view.addEventListener('pointermove', onViewPointerMove, { passive: false });
+view.addEventListener('pointerup', onViewPointerUp);
+view.addEventListener('pointercancel', () => { down = null; });
 screen.addEventListener('contextmenu', e => e.preventDefault());
+view.addEventListener('contextmenu', e => e.preventDefault());
 
 function setTapMode(m) {
   tapMode = m;
