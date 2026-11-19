@@ -58,7 +58,15 @@
   .assistant blockquote { margin: 0 0 .6em; padding-left: 10px; border-left: 3px solid #555; color: #aaa; }
   .tool { font: calc(8px * 2 / 3)/1.4 ui-monospace, Menlo, monospace; color: #9da5b4; background: #252526; border: 1px solid #303030; border-radius: 8px; padding: 6px 9px; }
   .tool .txt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tool.open .txt { -webkit-line-clamp: unset; display: block; }
+  .tool .toolBody { display: none; margin: 6px 0 0; white-space: pre-wrap; overflow-x: auto; }
+  .tool.open .toolBody { display: block; }
+  .tool .fileLink { display: inline-block; margin-top: 6px; font-size: inherit; padding: 3px 8px; color: #6cb6ff; background: transparent; border-color: #3c3c3c; }
   .thinking, .other { font-size: calc(8px * 2 / 3); line-height: 1.4; color: #777; padding-left: 2px; }
+  .thinking .txt, .other .txt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .thinking.open .txt, .other.open .txt { -webkit-line-clamp: unset; display: block; }
+  .thinking .toolBody, .other .toolBody { display: none; margin-top: 4px; white-space: pre-wrap; }
+  .thinking.open .toolBody, .other.open .toolBody { display: block; }
   .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .btns button { font-size: 13px; padding: 5px 10px; }
   .btns button.primary { font-weight: 600; }
@@ -943,10 +951,15 @@ function renderItem(it) {
   // it.h comes from the whitelist sanitizer in server.mjs (pageHelpers.clean): plain tags only, text escaped.
   else if (it.k === 'assistant') el.innerHTML = it.h || '';
   else if (it.k === 'tool') {
-    el.innerHTML = `<div class="txt">${esc(it.t || '')}</div>`;
-    if (it.f) el.dataset.file = it.f;
+    const name = it.f ? it.f.replace(/\\/g, '/').split('/').pop() : '';
+    el.innerHTML = `<div class="txt">${esc(it.t || '')}</div>`
+      + (it.body ? `<pre class="toolBody">${esc(it.body)}</pre>` : '')
+      + (it.f ? `<button type="button" class="fileLink" data-file="${esc(it.f)}">${esc(name)}</button>` : '');
   }
-  else el.textContent = it.t || '';
+  else {
+    el.innerHTML = `<div class="txt">${esc(it.t || '')}</div>`
+      + (it.body ? `<pre class="toolBody">${esc(it.body)}</pre>` : '');
+  }
   if (it.b && it.k !== 'human') el.insertAdjacentHTML('beforeend', `<div class="btns">${buttonsHtml(it.b, it.i)}</div>`);
   return el;
 }
@@ -1138,6 +1151,11 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('button[data-item]');
   const f = !b && e.target.closest('#items [data-file]');
   if (f) return openFile(f.dataset.file);
+  const card = !b && e.target.closest('#items .tool, #items .thinking, #items .other');
+  if (card) {
+    card.classList.toggle('open');
+    return;
+  }
   if (!b) return;
   if (RISKY.test(b.textContent.trim()) && !await ask(`确定要点「${b.textContent.trim()}」吗？`, b.textContent.trim())) return;
   send({ t: 'click', item: b.dataset.item, n: Number(b.dataset.n) });
@@ -1154,7 +1172,7 @@ $('vBody').classList.toggle('wrap', store.get('wrap') !== 'off');
 $('vWrap').classList.toggle('on', store.get('wrap') !== 'off');
 
 function openFile(ref) {
-  $('vName').textContent = ref.split('/').pop();
+  $('vName').textContent = String(ref).replace(/\\/g, '/').split('/').pop();
   $('vPath').textContent = '';
   $('vBody').innerHTML = '<div class="note">正在从电脑读取…</div>';
   if (!$('viewer').classList.contains('open')) {
