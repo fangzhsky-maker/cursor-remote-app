@@ -122,7 +122,6 @@
   #send { flex: none; height: 40px; padding: 0 16px; background: #0e639c; border-color: #1177bb; color: #fff; font-weight: 600; }
   #msg { font-size: 12px; color: #888; min-height: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #msg.err { color: #f77; }
-  body.shell #img { display: none; }
 
   /* bottom sheet */
   #shade { position: fixed; inset: 0; z-index: 30; background: #0008; display: none; }
@@ -221,7 +220,6 @@
   <section id="screenView" class="view">
     <div class="tools">
       <button id="cropPanel" class="on">聊天面板</button>
-      <button id="cropTerm">终端</button>
       <button id="cropFull">整个窗口</button>
       <button id="modeTap" class="on">点击</button>
       <button id="modeScroll">滚动</button>
@@ -249,7 +247,6 @@
     <button id="pickModel" hidden></button>
     <button id="pickHistory">历史</button>
     <button id="newChat">＋ 新建</button>
-    <button id="openShell">Shell</button>
   </div>
   <div class="row">
     <textarea id="text" rows="1" placeholder="发给 Cursor Agent…" enterkeyhint="send"></textarea>
@@ -297,7 +294,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 let base = null, info = null, ws = null, authed = false, failures = 0;
 let mode = store.get('mode') || 'chat';
 let crop = store.get('crop') !== 'full';
-let cropTerm = false, termPanel = null, shellActive = false;
 let frame = { w: 1000, h: 800 }, panel = null, zoom = 1, tapMode = 'tap', rightNext = false;
 let windows = [], currentWindow = null;
 
@@ -571,7 +567,6 @@ function connect() {
     }
     else if (m.t === 'frame') onFrame(m);
     else if (m.t === 'panel') { panel = m.rect; layoutStage(); applyQuality(); }
-    else if (m.t === 'shell') { if (m.rect) termPanel = m.rect; layoutStage(); applyQuality(); }
     else if (m.t === 'windows') { windows = m.list; currentWindow = m.current; if (sheetKind === 'windows') showWindows(); }
     else if (m.t === 'attached') {
       store.set('window', m.id);
@@ -904,23 +899,14 @@ $('sheet').addEventListener('click', async e => {
 });
 
 /* ---------- mode switching ---------- */
-function setShellUi(on) {
-  shellActive = on;
-  document.body.classList.toggle('shell', on);
-  $('openShell').classList.toggle('on', on);
-  text.placeholder = on ? '输入到终端…' : '发给 Cursor Agent…';
-  $('chatTools').hidden = mode !== 'chat' && !on;
-}
-
 function setMode(m) {
   mode = m;
   store.set('mode', m);
-  if (m === 'chat') setShellUi(false);
   $('tabChat').classList.toggle('on', m === 'chat');
   $('tabScreen').classList.toggle('on', m === 'screen');
   $('chatView').classList.toggle('active', m === 'chat');
   $('screenView').classList.toggle('active', m === 'screen');
-  $('chatTools').hidden = m !== 'chat' && !shellActive;
+  $('chatTools').hidden = m !== 'chat';
   if (authed) send({ t: 'mode', mode: m });
   if (m === 'screen') { layoutStage(); applyQuality(); }
 }
@@ -1148,13 +1134,6 @@ $('pickMode').onclick = () => { status('读取模式列表…'); send({ t: 'open
 $('pickModel').onclick = () => { status('读取模型列表…'); send({ t: 'openMenu', kind: 'model' }); };
 $('pickHistory').onclick = () => { status('读取历史对话…'); send({ t: 'openMenu', kind: 'history' }); };
 $('newChat').onclick = () => { send({ t: 'newChat' }); status('已新建对话'); };
-$('openShell').onclick = () => {
-  setMode('screen');
-  setCropTerm();
-  setShellUi(true);
-  status('正在打开终端…');
-  send({ t: 'openShell' });
-};
 
 /* ---------- file viewer ---------- */
 $('vBody').classList.toggle('wrap', store.get('wrap') !== 'off');
@@ -1223,7 +1202,7 @@ function onFrame(m) {
 }
 screen.onload = () => send({ t: 'ack' });
 
-const cropRect = () => (cropTerm && termPanel) ? termPanel : (crop && panel ? panel : [0, 0, frame.w, frame.h]);
+const cropRect = () => crop && panel ? panel : [0, 0, frame.w, frame.h];
 
 function cropScale() {
   const [rx, ry, rw, rh] = cropRect();
@@ -1253,25 +1232,14 @@ function applyQuality() {
   send({ t: 'quality', quality: 70, maxWidth: px });
 }
 
-function applyCropButtons() {
-  $('cropPanel').classList.toggle('on', !cropTerm && crop);
-  $('cropTerm').classList.toggle('on', cropTerm);
-  $('cropFull').classList.toggle('on', !cropTerm && !crop);
-}
 function setCrop(on) {
-  cropTerm = false;
   crop = on;
   store.set('crop', on ? 'panel' : 'full');
-  applyCropButtons();
-  layoutStage(); applyQuality();
-}
-function setCropTerm() {
-  cropTerm = true;
-  applyCropButtons();
+  $('cropPanel').classList.toggle('on', on);
+  $('cropFull').classList.toggle('on', !on);
   layoutStage(); applyQuality();
 }
 $('cropPanel').onclick = () => setCrop(true);
-$('cropTerm').onclick = () => setCropTerm();
 $('cropFull').onclick = () => setCrop(false);
 
 function norm(e) {
@@ -1311,7 +1279,6 @@ screen.addEventListener('pointerup', e => {
     rightNext = false; $('rightClick').classList.remove('on');
     send({ t: 'tap', x: p.x, y: p.y, button });
     ripple(e);
-    if (shellActive && button === 'left') setTimeout(() => text.focus(), 0);
   }
   down = null;
 });
@@ -1348,23 +1315,11 @@ function autosize() { text.style.height = 'auto'; text.style.height = text.scrol
 text.addEventListener('input', autosize);
 $('send').onclick = () => {
   const v = text.value;
-  if (shellActive) {
-    send({ t: 'shellType', text: v, submit: true });
-    text.value = ''; autosize();
-    status('已发到终端');
-    setTimeout(() => text.focus(), 0);
-    return;
-  }
   if (!v.trim()) return;
   send({ t: 'send', text: v, submit: true });
   text.value = ''; autosize();
   if (mode === 'chat') list.scrollTop = list.scrollHeight;
 };
-text.addEventListener('keydown', e => {
-  if (!shellActive || e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-  e.preventDefault();
-  $('send').click();
-});
 
 /* ---------- voice input ---------- */
 // Android WebView has no Web Speech API, so the app uses the system recognizer through the bridge instead.
