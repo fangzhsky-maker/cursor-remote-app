@@ -1250,31 +1250,42 @@ function cropScale() {
   const [rx, ry, rw, rh] = cropRect();
   const availW = Math.max(view.clientWidth, 1);
   const availH = Math.max(view.clientHeight, 1);
-  let scale = 1;
-  if (rw > 1 && rh > 1) {
-    scale = crop ? (availH / rh) : Math.max(availW / rw, availH / rh);
+  if (crop && rw > 1 && rh > 1) {
+    return { rx, ry, rw, rh, availW, availH, scaleX: availW / rw * zoom, scaleY: availH / rh * zoom };
   }
-  return { rx, ry, rw, rh, availW, availH, scale: scale * zoom };
+  const s = (rw > 1 && rh > 1) ? Math.max(availW / rw, availH / rh) * zoom : 1;
+  return { rx, ry, rw, rh, availW, availH, scaleX: s, scaleY: s };
 }
 
 function layoutStage() {
   if (mode !== 'screen') return;
-  const { rx, ry, rw, rh, availH, scale } = cropScale();
-  const stageW = Math.round(rw * scale);
-  const stageH = crop ? Math.round(availH) : Math.round(rh * scale);
-  stage.style.width = stageW + 'px';
-  stage.style.height = stageH + 'px';
-  screen.style.setProperty('width', Math.round(frame.w * scale) + 'px', 'important');
-  screen.style.setProperty('height', Math.round(frame.h * scale) + 'px', 'important');
-  screen.style.left = Math.round(-rx * scale) + 'px';
-  screen.style.top = Math.round(-ry * scale) + 'px';
+  const { rx, ry, rw, rh, availW, availH, scaleX, scaleY } = cropScale();
+  if (crop) {
+    stage.style.width = Math.round(availW * zoom) + 'px';
+    stage.style.height = Math.round(availH * zoom) + 'px';
+    screen.style.setProperty('width', frame.w + 'px', 'important');
+    screen.style.setProperty('height', frame.h + 'px', 'important');
+    screen.style.left = '0';
+    screen.style.top = '0';
+    screen.style.transformOrigin = '0 0';
+    screen.style.transform = `translate(${-rx * scaleX}px, ${-ry * scaleY}px) scale(${scaleX}, ${scaleY})`;
+  } else {
+    screen.style.transform = '';
+    screen.style.transformOrigin = '';
+    stage.style.width = Math.round(rw * scaleX) + 'px';
+    stage.style.height = Math.round(rh * scaleY) + 'px';
+    screen.style.setProperty('width', Math.round(frame.w * scaleX) + 'px', 'important');
+    screen.style.setProperty('height', Math.round(frame.h * scaleY) + 'px', 'important');
+    screen.style.left = Math.round(-rx * scaleX) + 'px';
+    screen.style.top = Math.round(-ry * scaleY) + 'px';
+  }
 }
 
 let sentWidth = 0;
 function applyQuality() {
   if (mode !== 'screen' || !authed) return;
-  const { scale } = cropScale();
-  const px = Math.min(2560, Math.round(frame.w * scale * devicePixelRatio));
+  const { scaleX, scaleY } = cropScale();
+  const px = Math.min(2560, Math.round(frame.w * Math.max(scaleX, scaleY) * devicePixelRatio));
   if (Math.abs(px - sentWidth) < 40) return;
   sentWidth = px;
   send({ t: 'quality', quality: 70, maxWidth: px });
@@ -1296,8 +1307,15 @@ $('cropFull').onclick = () => setCrop(false);
 if (window.ResizeObserver) new ResizeObserver(() => { if (mode === 'screen') layoutStage(); }).observe(view);
 
 function norm(e) {
+  if (crop && panel && frame.w && frame.h) {
+    const r = stage.getBoundingClientRect();
+    const [rx, ry, rw, rh] = cropRect();
+    const px = rx + (e.clientX - r.left) / Math.max(r.width, 1) * rw;
+    const py = ry + (e.clientY - r.top) / Math.max(r.height, 1) * rh;
+    return { x: px / frame.w, y: py / frame.h };
+  }
   const r = screen.getBoundingClientRect();
-  return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+  return { x: (e.clientX - r.left) / Math.max(r.width, 1), y: (e.clientY - r.top) / Math.max(r.height, 1) };
 }
 
 function ripple(e) {
@@ -1335,20 +1353,31 @@ function onViewPointerMove(e) {
   if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down.moved = true;
   if (remoteScroll() && down.moved) {
     e.preventDefault();
-    const css = Math.max(screen.getBoundingClientRect().width, 1);
-    const k = (frame.w / css) * (crop ? 2.4 : 1.6);
     const dxFinger = down.lastX - e.clientX;
     const dyFinger = down.lastY - e.clientY;
     let dxRemote = dxFinger, dyRemote = dyFinger;
     if (crop) {
       const maxX = Math.max(0, view.scrollWidth - view.clientWidth);
+      const maxY = Math.max(0, view.scrollHeight - view.clientHeight);
       if (maxX > 1 && dxFinger) {
         const prev = view.scrollLeft;
         view.scrollLeft += dxFinger;
         dxRemote = dxFinger - (view.scrollLeft - prev);
       }
+      if (maxY > 1 && dyFinger) {
+        const prev = view.scrollTop;
+        view.scrollTop += dyFinger;
+        dyRemote = dyFinger - (view.scrollTop - prev);
+      }
+      const { rw, rh } = cropScale();
+      const kx = rw / Math.max(stage.clientWidth, 1) * 2.4;
+      const ky = rh / Math.max(stage.clientHeight, 1) * 2.4;
+      queueWheel(dxRemote * kx, dyRemote * ky);
+    } else {
+      const css = Math.max(screen.getBoundingClientRect().width, 1);
+      const k = (frame.w / css) * 1.6;
+      queueWheel(dxRemote * k, dyRemote * k);
     }
-    queueWheel(dxRemote * k, dyRemote * k);
     down.lastY = e.clientY;
     down.lastX = e.clientX;
   }
@@ -1357,7 +1386,7 @@ function onViewPointerUp(e) {
   if (!down) return;
   flushWheel();
   const longPress = Date.now() - down.t > 600;
-  const r = screen.getBoundingClientRect();
+  const r = (crop ? stage : screen).getBoundingClientRect();
   const onImg = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
   if (!down.moved && onImg) {
     const p = norm(e);
