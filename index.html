@@ -112,8 +112,11 @@
   #view { flex: 1; min-height: 0; overflow: auto; background: #111; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
   #stage { position: relative; overflow: hidden; margin: 0 auto; }
   #screen { position: absolute; left: 0; top: 0; max-width: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x pan-y; }
-  #view.scroll, #screenView.panelCrop #view { overflow: hidden; touch-action: none; }
-  #view.scroll #screen, #screenView.panelCrop #screen { touch-action: none; }
+  #view.scroll { overflow: hidden; touch-action: none; }
+  #view.scroll #screen { touch-action: none; }
+  #screenView.panelCrop #view { overflow-x: auto; overflow-y: hidden; touch-action: none; }
+  #screenView.panelCrop #screen { touch-action: none; }
+  #screenView.panelCrop #stage { height: 100%; }
   #ripple { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid #4af; pointer-events: none; opacity: 0; transition: opacity .4s; }
 
   /* composer */
@@ -1241,15 +1244,17 @@ function cropScale() {
   const [rx, ry, rw, rh] = cropRect();
   const availW = Math.max(view.clientWidth, 1);
   const availH = Math.max(view.clientHeight, 1);
-  const fit = (!rw || !rh) ? 1 : (crop ? Math.min(availW / rw, availH / rh) : Math.max(availW / rw, availH / rh));
+  const fit = (!rw || !rh) ? 1 : (crop ? availH / rh : Math.max(availW / rw, availH / rh));
   return { rx, ry, rw, rh, scale: fit * zoom };
 }
 
 function layoutStage() {
   if (mode !== 'screen') return;
   const { rx, ry, rw, rh, scale } = cropScale();
-  stage.style.width = Math.round(rw * scale) + 'px';
-  stage.style.height = Math.round(rh * scale) + 'px';
+  const w = Math.round(rw * scale);
+  const h = crop ? Math.round(view.clientHeight * zoom) : Math.round(rh * scale);
+  stage.style.width = w + 'px';
+  stage.style.height = h + 'px';
   screen.style.width = Math.round(frame.w * scale) + 'px';
   screen.style.left = Math.round(-rx * scale) + 'px';
   screen.style.top = Math.round(-ry * scale) + 'px';
@@ -1271,6 +1276,7 @@ function setCrop(on) {
   $('cropPanel').classList.toggle('on', on);
   $('cropFull').classList.toggle('on', !on);
   $('screenView').classList.toggle('panelCrop', on);
+  if (on) setTapMode('scroll');
   layoutStage(); applyQuality();
 }
 $('cropPanel').onclick = () => setCrop(true);
