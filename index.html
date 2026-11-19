@@ -561,7 +561,10 @@ function connect() {
       syncNotify();
       setTimeout(checkAppUpdate, 3000);
     }
-    else if (m.t === 'chat') renderChat(m.chat);
+    else if (m.t === 'chat') {
+      renderChat(m.chat);
+      if (m.chat?.items?.length && /切换/.test($('msg').textContent)) status('');
+    }
     else if (m.t === 'frame') onFrame(m);
     else if (m.t === 'panel') { panel = m.rect; layoutStage(); applyQuality(); }
     else if (m.t === 'windows') { windows = m.list; currentWindow = m.current; if (sheetKind === 'windows') showWindows(); }
