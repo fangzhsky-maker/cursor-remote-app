@@ -102,7 +102,7 @@
   .tools { flex: none; display: flex; gap: 6px; padding: 6px 8px; overflow-x: auto; scrollbar-width: none; background: #252526; border-bottom: 1px solid #333; min-width: 0; }
   .tools::-webkit-scrollbar { display: none; }
   #view { flex: 1; min-height: 0; overflow: auto; background: #111; -webkit-overflow-scrolling: touch; }
-  #stage { position: relative; overflow: hidden; margin: 0 auto; }
+  #stage { position: relative; overflow: hidden; margin: 0 auto; min-height: 100%; }
   #screen { position: absolute; left: 0; top: 0; max-width: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x pan-y; }
   #view.scroll #screen { touch-action: none; }
   #ripple { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid #4af; pointer-events: none; opacity: 0; transition: opacity .4s; }
@@ -1225,23 +1225,29 @@ screen.onload = () => send({ t: 'ack' });
 
 const cropRect = () => (cropTerm && termPanel) ? termPanel : (crop && panel ? panel : [0, 0, frame.w, frame.h]);
 
+function cropScale() {
+  const [rx, ry, rw, rh] = cropRect();
+  const availW = Math.max(view.clientWidth, 1);
+  const availH = Math.max(view.clientHeight, 1);
+  const scale = (!rw || !rh) ? 1 : Math.max(availW / rw, availH / rh) * zoom;
+  return { rx, ry, rw, rh, scale };
+}
+
 function layoutStage() {
   if (mode !== 'screen') return;
-  const [rx, ry, rw, rh] = cropRect();
-  const stageW = view.clientWidth * zoom;
-  const scale = stageW / rw;
-  stage.style.width = stageW + 'px';
-  stage.style.height = rh * scale + 'px';
-  screen.style.width = frame.w * scale + 'px';
-  screen.style.left = -rx * scale + 'px';
-  screen.style.top = -ry * scale + 'px';
+  const { rx, ry, rw, rh, scale } = cropScale();
+  stage.style.width = Math.round(rw * scale) + 'px';
+  stage.style.height = Math.round(rh * scale) + 'px';
+  screen.style.width = Math.round(frame.w * scale) + 'px';
+  screen.style.left = Math.round(-rx * scale) + 'px';
+  screen.style.top = Math.round(-ry * scale) + 'px';
 }
 
 let sentWidth = 0;
 function applyQuality() {
   if (mode !== 'screen' || !authed) return;
-  const [, , rw] = cropRect();
-  const px = Math.min(2560, Math.round(view.clientWidth * zoom * devicePixelRatio * frame.w / rw));
+  const { scale } = cropScale();
+  const px = Math.min(2560, Math.round(frame.w * scale * devicePixelRatio));
   if (Math.abs(px - sentWidth) < 40) return;
   sentWidth = px;
   send({ t: 'quality', quality: 70, maxWidth: px });
