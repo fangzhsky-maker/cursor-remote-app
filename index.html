@@ -114,7 +114,14 @@
   #screen { position: absolute; left: 0; top: 0; max-width: none !important; max-height: none !important; width: auto; height: auto; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x pan-y; }
   #view.scroll { overflow: hidden; touch-action: none; }
   #view.scroll #screen { touch-action: none; }
-  #screenView.panelCrop #view { overflow-x: auto; overflow-y: hidden; touch-action: none; display: flex; justify-content: center; align-items: stretch; }
+  #screenView.panelCrop #view,
+  #screenView.panelCrop #view.scroll {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    touch-action: none;
+    display: block;
+    -webkit-overflow-scrolling: touch;
+  }
   #screenView.panelCrop #screen { touch-action: none; }
   #ripple { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid #4af; pointer-events: none; opacity: 0; transition: opacity .4s; }
 
@@ -1330,7 +1337,18 @@ function onViewPointerMove(e) {
     e.preventDefault();
     const css = Math.max(screen.getBoundingClientRect().width, 1);
     const k = (frame.w / css) * (crop ? 2.4 : 1.6);
-    queueWheel((down.lastX - e.clientX) * k, (down.lastY - e.clientY) * k);
+    const dxFinger = down.lastX - e.clientX;
+    const dyFinger = down.lastY - e.clientY;
+    let dxRemote = dxFinger, dyRemote = dyFinger;
+    if (crop) {
+      const maxX = Math.max(0, view.scrollWidth - view.clientWidth);
+      if (maxX > 1 && dxFinger) {
+        const prev = view.scrollLeft;
+        view.scrollLeft += dxFinger;
+        dxRemote = dxFinger - (view.scrollLeft - prev);
+      }
+    }
+    queueWheel(dxRemote * k, dyRemote * k);
     down.lastY = e.clientY;
     down.lastX = e.clientX;
   }
